@@ -1,0 +1,132 @@
+#include <Wire.h>
+#include <Adafruit_Sensor.h>
+#include <Adafruit_HMC5883_U.h>
+#include <Adafruit_BMP085.h>
+#include <MPU6050.h>
+#include <Servo.h>
+
+// Pin Definitions
+#define ESC_PIN 2
+#define JOYSTICK_PIN A0
+
+// Sensor Objects
+MPU6050 mpu;
+Adafruit_HMC5883_Unified mag = Adafruit_HMC5883_Unified(12345);
+Adafruit_BMP085 bmp;
+Servo esc;
+
+// Variables for Orientation
+float accX, accY, accZ;
+float gyroX, gyroY, gyroZ;
+float magX, magY, magZ;
+float roll, pitch, yaw;
+
+// Timer for integration
+unsigned long previousTime = 0;
+
+void setup() {
+    Serial.begin(9600);
+    Wire.begin();
+    
+    // Initialize ESC
+    esc.attach(ESC_PIN, 1000, 2000);
+    esc.write(0);
+    delay(2000);
+    Serial.println("ESC Initialized!");
+
+    // Initialize MPU6050
+    if (!mpu.testConnection()) {
+        Serial.println("MPU6050 not found!");
+        while (1);
+    } else {
+        Serial.println("MPU6050 connected!");
+    }
+    mpu.initialize();
+
+    // Initialize Magnetometer
+    if (!mag.begin()) {
+        Serial.println("HMC5883L not found!");
+        while (1);
+    } else {
+        Serial.println("HMC5883L connected!");
+    }
+
+    // Initialize BMP180
+    if (!bmp.begin()) {
+        Serial.println("BMP180 not found!");
+        while (1);
+    } else {
+        Serial.println("BMP180 connected!");
+    }
+
+    previousTime = millis();
+}
+
+void loop() {
+    // Read MPU6050 (Accelerometer & Gyro)
+    int16_t ax, ay, az, gx, gy, gz;
+    mpu.getMotion6(&ax, &ay, &az, &gx, &gy, &gz);
+    accX = ax / 16384.0; // Convert to 'g' units
+    accY = ay / 16384.0;
+    accZ = az / 16384.0;
+    gyroX = gx / 131.0;  // Convert to °/s
+    gyroY = gy / 131.0;
+    gyroZ = gz / 131.0;
+
+    // Read Magnetometer
+    sensors_event_t event;
+    mag.getEvent(&event);
+    magX = event.magnetic.x;
+    magY = event.magnetic.y;
+    magZ = event.magnetic.z;
+
+    // Read Temperature & Pressure
+    float tempMPU = mpu.getTemperature() / 340.0 + 36.53;
+    float tempBMP = bmp.readTemperature();
+    float pressure = bmp.readPressure() / 100.0; // Convert to hPa
+
+    // Compute Roll & Pitch from Accelerometer
+    roll = atan2(accY, accZ) * 180 / M_PI;
+    pitch = atan2(-accX, sqrt(accY * accY + accZ * accZ)) * 180 / M_PI;
+
+    // Compute Yaw using Magnetometer
+    float magAngle = atan2(magY, magX) * 180 / M_PI;
+    if (magAngle < 0) magAngle += 360;
+    yaw = magAngle;
+
+    // Read Joystick and Control Motor
+    int joystickValue = analogRead(JOYSTICK_PIN);
+    joystickValue = constrain(joystickValue, 550, 1023);
+    int motorSpeed = map(joystickValue, 550, 1023, 0, 180);
+    esc.write(motorSpeed);
+
+    // Print Sensor Values & Motor Speed
+    Serial.println("===================================");
+    Serial.print("ACCEL (g): X="); Serial.print(accX);
+    Serial.print(" Y="); Serial.print(accY);
+    Serial.print(" Z="); Serial.println(accZ);
+
+    Serial.print("GYRO (°/s): X="); Serial.print(gyroX);
+    Serial.print(" Y="); Serial.print(gyroY);
+    Serial.print(" Z="); Serial.println(gyroZ);
+
+    Serial.print("MAGNETO (uT): X="); Serial.print(magX);
+    Serial.print(" Y="); Serial.print(magY);
+    Serial.print(" Z="); Serial.println(magZ);
+
+    Serial.print("ORIENTATION (°): Roll="); Serial.print(roll);
+    Serial.print(" Pitch="); Serial.print(pitch);
+    Serial.print(" Yaw="); Serial.println(yaw);
+
+    Serial.print("TEMP (°C): MPU6050="); Serial.print(tempMPU);
+    Serial.print(" BMP180="); Serial.print(tempBMP);
+    Serial.print(" PRESSURE (hPa)="); Serial.println(pressure);
+
+    Serial.print("MOTOR SPEED: "); Serial.println(motorSpeed);
+    Serial.println("===================================");
+    Serial.println();
+
+    delay(500);
+}
+// the joystick arduino pin A0 
+//mpu pins SDA : A4 , SCL : A5 
